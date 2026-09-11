@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Storyit">
+<meta name="theme-color" content="#F6F4EF">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Storyit — storyboards that feel good</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='10' y='10' width='80' height='80' rx='18' fill='%23FF4D00'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-tool="type">
+
+  <!-- ============ HOME ============ -->
+  <section id="view-home" class="view">
+    <div class="view-inner">
+    <header class="hero">
+      <div class="logo">Storyit<span class="logo-dot"></span></div>
+      <p class="tagline">Storyboards &amp; scripts for people who think in shots.<br>Type it out. Sketch it in. All saved right here.</p>
+      <div class="hero-actions">
+        <button class="btn btn-accent btn-big pop-anchor" id="btn-new-project">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          New storyboard
+        </button>
+        <button class="btn btn-big" id="btn-new-script">
+          <svg viewBox="0 0 24 24"><path d="M7 3h10a1.5 1.5 0 011.5 1.5v15A1.5 1.5 0 0117 21H7a1.5 1.5 0 01-1.5-1.5v-15A1.5 1.5 0 017 3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/><path d="M9 8h6M9 12h6M9 16h4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          New script
+        </button>
+      </div>
+      <div class="hero-sub">
+        <button class="btn btn-small" id="btn-import">
+          <svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 16.5V19a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 19v-2.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Import .txt / backup
+        </button>
+        <button class="btn btn-small" id="btn-backup-all" title="Download every storyboard and script as one .storyit.json">
+          <svg viewBox="0 0 24 24"><path d="M12 3v10M8 9.5l4 4 4-4M5 16.5V19a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 19v-2.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Back up everything
+        </button>
+        <span class="sync-pill" data-sync-pill title="Sync status"><i></i><span>Local only</span></span>
+      </div>
+      <p class="ipad-tip" id="ipad-tip" hidden></p>
+      <input type="file" id="import-file" accept=".txt,.json,text/plain,application/json" multiple hidden>
+    </header>
+
+    <h2 class="grid-label" id="label-projects" hidden>Storyboards</h2>
+    <div class="project-grid" id="project-grid"></div>
+
+    <h2 class="grid-label" id="label-scripts" hidden>Scripts</h2>
+    <div class="project-grid" id="script-grid"></div>
+
+    <div class="empty" id="home-empty" hidden>
+      <div class="empty-frames"><i></i><i></i><i></i></div>
+      <p>Nothing here yet. Make your first board or script.</p>
+    </div>
+    </div>
+  </section>
+
+  <!-- ============ PROJECT ============ -->
+  <section id="view-project" class="view" hidden>
+    <div class="view-inner">
+    <header class="project-bar">
+      <button class="icon-btn" id="btn-back" title="Back to projects">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <input id="project-name" class="project-name" spellcheck="false" maxlength="60" placeholder="Untitled project">
+      <div class="bar-right">
+        <span class="sync-pill" data-sync-pill title="Sync status"><i></i><span>Local only</span></span>
+        <span class="save-dot" id="save-dot"><i></i>Saved</span>
+        <button class="aspect-chip pop-anchor" id="btn-grid" title="Shots per page — columns × rows">2×3</button>
+        <button class="aspect-chip pop-anchor" id="btn-aspect" title="Frame aspect ratio">16:9</button>
+        <button class="icon-btn pop-anchor" id="btn-export" title="Export — PDF, text, backup">
+          <svg viewBox="0 0 24 24"><path d="M12 3v10M8 9.5l4 4 4-4M5 16.5V19a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 19v-2.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="print-header" id="print-header"></div>
+
+    <div class="pages" id="pages"></div>
+
+    <div class="add-page-row">
+      <button class="add-page" id="btn-add-page-bottom">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        Add page
+      </button>
+    </div>
+    </div>
+
+    <!-- floating tool pill -->
+    <div class="toolbar" id="toolbar">
+      <button class="tool active" id="tool-type" data-tool="type" title="Select — type in titles &amp; lines (V)">
+        <svg viewBox="0 0 24 24"><path d="M7 3.5l10.5 9-5.2 1 2.4 5.4-2.5 1.1-2.4-5.6L7 17.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool" id="tool-text" data-tool="text" title="Text — click a frame to type on it (T)">
+        <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
+      </button>
+      <button class="tool" id="tool-pen" data-tool="pen" title="Pen — draw in any frame (P)">
+        <svg viewBox="0 0 24 24"><path d="M4 20l1.2-4.2L16.4 4.6a2 2 0 012.8 0l.2.2a2 2 0 010 2.8L8.2 18.8 4 20z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool" id="tool-eraser" data-tool="eraser" title="Eraser (E)">
+        <svg viewBox="0 0 24 24"><path d="M7 20h13M5.5 14.5l8-8a2 2 0 012.8 0l2.2 2.2a2 2 0 010 2.8l-6 6H9l-3.5-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+
+      <span class="tool-sep"></span>
+
+      <button class="swatch active" data-color="#141414" style="--c:#141414" title="Ink"></button>
+      <button class="swatch" data-color="#FF4D00" style="--c:#FF4D00" title="Orange"></button>
+      <button class="swatch" data-color="#1652F0" style="--c:#1652F0" title="Blue"></button>
+      <button class="tool brush-btn pop-anchor" id="btn-brush" title="Brush — size, opacity, more colors">
+        <i class="brush-dot"></i>
+      </button>
+
+      <span class="tool-sep"></span>
+
+      <button class="tool" id="btn-undo" title="Undo drawing (⌘Z)">
+        <svg viewBox="0 0 24 24"><path d="M8 5L4 9l4 4M4.5 9H15a5 5 0 015 5v0a5 5 0 01-5 5h-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool" id="btn-redo" title="Redo drawing (⇧⌘Z)">
+        <svg viewBox="0 0 24 24"><path d="M16 5l4 4-4 4M19.5 9H9a5 5 0 00-5 5v0a5 5 0 005 5h4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+
+      <span class="tool-sep"></span>
+
+      <button class="tool" id="btn-hide-frames" title="Hide / show all frames (H)">
+        <svg class="ico-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+        <svg class="ico-eye-off" viewBox="0 0 24 24"><path d="M4 4l16 16M9.9 5.9A9.4 9.4 0 0112 5.5c6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 01-3.2 3.9M6 7.7A16.8 16.8 0 002.5 12S6 18.5 12 18.5a9 9 0 003.4-.7" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+      </button>
+      <button class="tool" id="btn-add-page" title="Add page (N)">
+        <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 8.5v7M8.5 12h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============ SCRIPT ============ -->
+  <section id="view-script" class="view" hidden>
+    <div class="view-inner">
+    <header class="project-bar">
+      <button class="icon-btn" id="btn-script-back" title="Back to projects">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-scene-nav" title="Scenes — jump to any scene">
+        <svg viewBox="0 0 24 24"><path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+      <input id="script-name" class="project-name" spellcheck="false" maxlength="80" placeholder="Untitled script">
+      <div class="bar-right">
+        <input id="script-author" class="script-author" spellcheck="false" maxlength="60" placeholder="Written by…" title="Author — shown on the PDF title page">
+        <span class="sync-pill" data-sync-pill title="Sync status"><i></i><span>Local only</span></span>
+        <span class="save-dot" id="script-save-dot"><i></i>Saved</span>
+        <button class="icon-btn pop-anchor" id="btn-script-export" title="Export — PDF, text, backup">
+          <svg viewBox="0 0 24 24"><path d="M12 3v10M8 9.5l4 4 4-4M5 16.5V19a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 19v-2.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="script-stage" id="script-stage">
+      <div class="script-sheet-wrap" id="script-sheet-wrap">
+        <div class="script-paper" id="script-paper">
+          <div id="script-doc"></div>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <!-- scene navigator rail -->
+    <aside class="scene-nav" id="scene-nav" hidden>
+      <div class="scene-nav-head">Scenes</div>
+      <div class="scene-nav-list" id="scene-nav-list"></div>
+    </aside>
+
+    <!-- floating element-type pill -->
+    <div class="toolbar script-tools" id="script-toolbar">
+      <button class="ttool" data-stype="scene" title="Scene heading — INT./EXT. (⌘1) · Tab cycles types">Scene</button>
+      <button class="ttool" data-stype="action" title="Action (⌘2)">Action</button>
+      <button class="ttool" data-stype="character" title="Character (⌘3)">Character</button>
+      <button class="ttool" data-stype="parenthetical" title="Parenthetical (⌘4)">(&hairsp;…&hairsp;)</button>
+      <button class="ttool" data-stype="dialogue" title="Dialogue (⌘5)">Dialogue</button>
+      <button class="ttool" data-stype="transition" title="Transition — CUT TO: (⌘6)">Trans.</button>
+      <button class="ttool" data-stype="shot" title="Shot — CLOSE ON, ANGLE ON, POV (⌘7)">Shot</button>
+      <span class="tool-sep"></span>
+      <button class="ttool zoom-btn" id="btn-zoom-out" title="Zoom out (⌘−)">−</button>
+      <button class="ttool zoom-label" id="btn-zoom-reset" title="Reset zoom (⌘0) · pinch or ⌘scroll also zooms">100%</button>
+      <button class="ttool zoom-btn" id="btn-zoom-in" title="Zoom in (⌘+)">+</button>
+      <span class="tool-sep"></span>
+      <span class="script-pagecount" id="script-pagecount" title="Pages">1 page</span>
+    </div>
+  </section>
+
+  <!-- ============ SHOT EDITOR (focus mode) ============ -->
+  <div id="editor" hidden>
+    <header class="ed-top">
+      <button class="icon-btn" id="ed-close" title="Close (Esc)">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+      </button>
+      <div class="ed-info">
+        <span class="shot-num" id="ed-label">1-1</span>
+        <span class="ed-title" id="ed-title"></span>
+      </div>
+      <button class="btn btn-accent" id="ed-done">Done</button>
+    </header>
+
+    <div class="ed-stage" id="ed-stage" data-tool="pen">
+      <canvas id="ed-canvas"></canvas>
+      <div class="ed-sel" id="ed-sel" hidden>
+        <div class="ed-sel-bar">
+          <button id="ed-img-back" title="Send backward">
+            <svg viewBox="0 0 24 24"><rect x="9.5" y="9.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><rect x="4.5" y="4.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+          </button>
+          <button id="ed-img-front" title="Bring forward">
+            <svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><rect x="9.5" y="9.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="3 2"/></svg>
+          </button>
+          <button id="ed-img-del" title="Delete image (⌫)">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M10 7V5h4v2M6.5 7l.8 13h9.4l.8-13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+        </div>
+        <i class="h nw"></i><i class="h ne"></i><i class="h sw"></i><i class="h se"></i>
+      </div>
+      <div class="ed-cursor" id="ed-cursor" hidden></div>
+      <div class="ed-zoom-chip" id="ed-zoom-chip">100%</div>
+    </div>
+
+    <div class="ed-bar">
+      <button class="tool active" data-edtool="pen" title="Pen (P)">
+        <svg viewBox="0 0 24 24"><path d="M4 20l1.2-4.2L16.4 4.6a2 2 0 012.8 0l.2.2a2 2 0 010 2.8L8.2 18.8 4 20z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool" data-edtool="eraser" title="Eraser (E)">
+        <svg viewBox="0 0 24 24"><path d="M7 20h13M5.5 14.5l8-8a2 2 0 012.8 0l2.2 2.2a2 2 0 010 2.8l-6 6H9l-3.5-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool" data-edtool="text" title="Text (T)">
+        <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
+      </button>
+      <button class="tool" data-edtool="select" title="Move / resize images (V)">
+        <svg viewBox="0 0 24 24"><path d="M7 3.5l10.5 9-5.2 1 2.4 5.4-2.5 1.1-2.4-5.6L7 17.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool" data-edtool="pan" title="Pan — or hold Space / drag with two fingers">
+        <svg viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 013 0V11m0-4.5a1.5 1.5 0 013 0V11m0-3a1.5 1.5 0 013 0v6a6 6 0 01-6 6h-1.2a6 6 0 01-4.8-2.4L4.2 14a1.6 1.6 0 012.5-2l2.3 2.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+
+      <span class="tool-sep"></span>
+
+      <button class="tool brush-btn pop-anchor" id="ed-brush" title="Brush — size, opacity, colors">
+        <i class="brush-dot"></i>
+      </button>
+      <button class="tool" id="ed-import" title="Import image — or drag &amp; drop / paste">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4.5 17.5l4.5-4 3.5 3 3-2.5 4 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+
+      <span class="tool-sep"></span>
+
+      <button class="tool" id="ed-undo" title="Undo (⌘Z)">
+        <svg viewBox="0 0 24 24"><path d="M8 5L4 9l4 4M4.5 9H15a5 5 0 015 5v0a5 5 0 01-5 5h-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool" id="ed-redo" title="Redo (⇧⌘Z)">
+        <svg viewBox="0 0 24 24"><path d="M16 5l4 4-4 4M19.5 9H9a5 5 0 00-5 5v0a5 5 0 005 5h4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+
+      <span class="tool-sep"></span>
+
+      <button class="tool" id="ed-zoom-out" title="Zoom out (−)">
+        <svg viewBox="0 0 24 24"><path d="M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+      </button>
+      <button class="tool" id="ed-zoom-fit" title="Fit (0)">
+        <svg viewBox="0 0 24 24"><path d="M9 4H5.5A1.5 1.5 0 004 5.5V9m11-5h3.5A1.5 1.5 0 0120 5.5V9m0 6v3.5a1.5 1.5 0 01-1.5 1.5H15M9 20H5.5A1.5 1.5 0 014 18.5V15" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
+      </button>
+      <button class="tool" id="ed-zoom-in" title="Zoom in (+)">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <input type="file" id="ed-file" accept="image/*" multiple hidden>
+  </div>
+
+  <!-- ============ POPOVERS ============ -->
+  <div class="popover" id="brush-pop" hidden>
+    <div class="pop-row">
+      <label>Size</label>
+      <input type="range" id="brush-size" min="2" max="60" step="1" value="8">
+      <span class="pop-val" id="brush-size-val">8</span>
+    </div>
+    <div class="pop-row">
+      <label>Opacity</label>
+      <input type="range" id="brush-opacity" min="10" max="100" step="5" value="100">
+      <span class="pop-val" id="brush-op-val">100%</span>
+    </div>
+    <div class="pop-row">
+      <label>Eraser</label>
+      <input type="range" id="eraser-size" min="8" max="160" step="2" value="36">
+      <span class="pop-val" id="eraser-size-val">36</span>
+    </div>
+    <div class="pop-swatches" id="pop-swatches">
+      <button class="swatch" data-color="#141414" style="--c:#141414" title="Ink"></button>
+      <button class="swatch" data-color="#FF4D00" style="--c:#FF4D00" title="Orange"></button>
+      <button class="swatch" data-color="#1652F0" style="--c:#1652F0" title="Blue"></button>
+      <button class="swatch" data-color="#2F9E44" style="--c:#2F9E44" title="Green"></button>
+      <button class="swatch" data-color="#E5484D" style="--c:#E5484D" title="Red"></button>
+      <button class="swatch" data-color="#F5B301" style="--c:#F5B301" title="Yellow"></button>
+      <button class="swatch" data-color="#9A9A9A" style="--c:#9A9A9A" title="Grey — rough pass"></button>
+      <button class="swatch" data-color="#FFFFFF" style="--c:#FFFFFF" title="White"></button>
+      <label class="swatch swatch-custom" title="Custom color">
+        <input type="color" id="brush-color" value="#141414">
+      </label>
+    </div>
+  </div>
+
+  <div class="popover" id="aspect-pop" hidden>
+    <button class="aspect-opt" data-ar="16:9">16:9 <span>widescreen</span></button>
+    <button class="aspect-opt" data-ar="2.39:1">2.39:1 <span>anamorphic</span></button>
+    <button class="aspect-opt" data-ar="4:3">4:3 <span>classic</span></button>
+    <button class="aspect-opt" data-ar="1:1">1:1 <span>square</span></button>
+    <button class="aspect-opt" data-ar="9:16">9:16 <span>vertical</span></button>
+  </div>
+
+  <div class="popover grid-pop" id="grid-pop" hidden>
+    <div class="pop-title">Shots per page</div>
+    <div class="grid-opts"><button class="grid-opt" data-cols="1" data-rows="1">1×1</button><button class="grid-opt" data-cols="1" data-rows="2">1×2</button><button class="grid-opt" data-cols="2" data-rows="2">2×2</button><button class="grid-opt" data-cols="2" data-rows="3">2×3</button><button class="grid-opt" data-cols="3" data-rows="2">3×2</button><button class="grid-opt" data-cols="3" data-rows="3">3×3</button><button class="grid-opt" data-cols="3" data-rows="4">3×4</button><button class="grid-opt" data-cols="4" data-rows="4">4×4</button></div>
+  </div>
+
+  <div class="popover create-pop" id="create-pop" hidden>
+    <div class="pop-title">Frame</div>
+    <div class="aspect-opts">
+      <button class="aspect-opt" data-ar="16:9">16:9 <span>widescreen</span></button>
+      <button class="aspect-opt" data-ar="2.39:1">2.39:1 <span>anamorphic</span></button>
+      <button class="aspect-opt" data-ar="4:3">4:3 <span>classic</span></button>
+      <button class="aspect-opt" data-ar="1:1">1:1 <span>square</span></button>
+      <button class="aspect-opt" data-ar="9:16">9:16 <span>vertical</span></button>
+    </div>
+    <div class="pop-title">Shots per page</div>
+    <div class="grid-opts"><button class="grid-opt" data-cols="1" data-rows="1">1×1</button><button class="grid-opt" data-cols="1" data-rows="2">1×2</button><button class="grid-opt" data-cols="2" data-rows="2">2×2</button><button class="grid-opt" data-cols="2" data-rows="3">2×3</button><button class="grid-opt" data-cols="3" data-rows="2">3×2</button><button class="grid-opt" data-cols="3" data-rows="3">3×3</button><button class="grid-opt" data-cols="3" data-rows="4">3×4</button><button class="grid-opt" data-cols="4" data-rows="4">4×4</button></div>
+    <button class="btn btn-accent" id="btn-create-project">Create storyboard</button>
+  </div>
+
+  <div class="popover menu-pop" id="export-pop" hidden>
+    <button class="menu-opt" data-export="pdf">PDF <span>print-ready pages (⌘P)</span></button>
+    <button class="menu-opt" data-export="txt">Text (.txt) <span>readable, re-importable</span></button>
+    <button class="menu-opt" data-export="json">Backup (.storyit.json) <span>everything, drawings included</span></button>
+  </div>
+  <div class="popover menu-pop" id="script-export-pop" hidden>
+    <button class="menu-opt" data-export="pdf">PDF <span>Courier 12pt (⌘P)</span></button>
+    <button class="menu-opt" data-export="txt">Text (.txt) <span>readable, re-importable</span></button>
+    <button class="menu-opt" data-export="json">Backup (.storyit.json)</button>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="model.js"></script>
+  <script src="textio.js"></script>
+  <script src="app.js"></script>
+  <script src="sync.js"></script>
+</body>
+</html>
