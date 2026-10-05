@@ -147,6 +147,18 @@ test("drawingSig changes on stroke push, image move and undo", () => {
   assert.equal(S.drawingSig(null), "");
 });
 
+test("drawingSig sees every edit to a shape (they're mutable, unlike strokes)", () => {
+  const sh = { shape: "human", x: 100, y: 100, w: 170, h: 170, rot: 0, color: "#141414", size: 8, opacity: 1, avatar: 0 };
+  const d = { base: null, images: [], strokes: [sh] };
+  const seen = new Set([S.drawingSig(d)]);
+  for (const [k, v] of [["x", 120], ["y", 90], ["w", 200], ["h", 200], ["rot", 1.2], ["color", "#E5484D"], ["size", 12], ["opacity", 0.5], ["avatar", 3]]) {
+    sh[k] = v;
+    const sig = S.drawingSig(d);
+    assert.ok(!seen.has(sig), "sig unchanged after editing " + k);
+    seen.add(sig);
+  }
+});
+
 test("mergeDrawing appends both sides' new strokes when both extend base; otherwise remote wins", () => {
   const st = n => ({ color: "#000", size: 4, opacity: 1, pts: [n, n, 0.5, n + 1, n + 1, 0.5] });
   const base = { base: null, images: [], strokes: [st(1)] };

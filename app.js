@@ -53,11 +53,13 @@ function load() {
 let db = load();
 let currentId = null;
 let currentScriptId = null;
-let tool = "type";      // type | text | pen | eraser
+let tool = "type";      // type | text | pen | eraser | shape
 let saveTimer = null;
 
 const brush = { color: "#141414", size: 8, opacity: 1 }; // size in logical px (frame = 1600 wide)
 let eraserSize = 36;
+let shapeKind = "rect", shapeAvatar = 0; // what the shape tool places
+const shapeStyle = () => ({ color: brush.color, size: Math.max(2, brush.size), opacity: brush.opacity, avatar: shapeAvatar });
 
 let activeTextCommit = null; // commit fn for the currently open on-canvas text editor
 function commitActiveText() { if (activeTextCommit) activeTextCommit(); }
@@ -83,14 +85,16 @@ function saveSoon() {
 function currentProject() { return db.projects.find(p => p.id === currentId) || null; }
 function currentScript() { return db.scripts.find(s => s.id === currentScriptId) || null; }
 
+/* one status pill: sync.js owns its state; a save just pops the dot, and
+   when there's no server it briefly reads "Saved" instead of "Local only" */
 function flashSaved() {
-  $$(".save-dot").forEach(el => {
-    el.classList.remove("show");
+  $$("[data-sync-pill]").forEach(el => {
+    el.classList.remove("saved");
     void el.offsetWidth; // restart the pop animation
-    el.classList.add("show");
+    el.classList.add("saved");
   });
   clearTimeout(flashSaved._t);
-  flashSaved._t = setTimeout(() => $$(".save-dot").forEach(el => el.classList.remove("show")), 1800);
+  flashSaved._t = setTimeout(() => $$("[data-sync-pill]").forEach(el => el.classList.remove("saved")), 1600);
 }
 
 /* ---------------- little helpers ---------------- */
@@ -100,7 +104,7 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add("show");
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove("show"), 1400);
+  toast._t = setTimeout(() => el.classList.remove("show"), Math.max(1600, msg.length * 55)); // long messages stay long enough to read
 }
 
 function holdButton(el, ms, onComplete, hint) {
@@ -388,7 +392,9 @@ function strokePath(s) {
 const ART_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif';
 
 function drawOp(ctx, s) {
-  if (s.text !== undefined) {
+  if (s.shape) {
+    drawShape(ctx, s);
+  } else if (s.text !== undefined) {
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = s.opacity ?? 1;
     ctx.fillStyle = s.color;
@@ -403,6 +409,162 @@ function drawOp(ctx, s) {
   }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
+}
+
+/* ---------------- shapes ----------------
+   Shape ops live in drawing.strokes (so they layer with ink) but, unlike
+   strokes, stay editable: {shape, x, y, w, h, rot, color, size, opacity, avatar?}.
+   (x, y) is the center, w × h the local box, rot radians. Lines run along
+   local x; cameras and people face local -y, toward the rotate knob. */
+
+const LINE_SHAPES = new Set(["line", "dotted", "arrow"]);
+const SHAPE_DEFAULTS = {
+  line: [360, 0], dotted: [360, 0], arrow: [360, 0],
+  rect: [320, 220], triangle: [260, 230], camera: [150, 210], human: [170, 170],
+};
+// shirt, skin, hair, hair style
+const AVATARS = [
+  { shirt: "#1652F0", skin: "#F1C7A1", hair: "#2B1D14", style: "short" },
+  { shirt: "#E5484D", skin: "#E8B48F", hair: "#8A4B2A", style: "long" },
+  { shirt: "#2F9E44", skin: "#A86B45", hair: "#2A1E17", style: "buzz" },
+  { shirt: "#7A4CE0", skin: "#F6D3B3", hair: "#141414", style: "bun" },
+  { shirt: "#FF8A00", skin: "#D9A27A", hair: "#1652F0", style: "cap" },
+  { shirt: "#0FA3A3", skin: "#8D5A3B", hair: "#1D1D1D", style: "curly" },
+];
+
+function isLineShape(s) { return LINE_SHAPES.has(s.shape); }
+
+/* build a shape from a drag a -> b (logical coords); a tap gets the default size */
+function shapeFromDrag(kind, a, b, constrain, style) {
+  const [dw, dh] = SHAPE_DEFAULTS[kind];
+  const s = { shape: kind, x: a.x, y: a.y, w: dw, h: dh, rot: 0, color: style.color, size: style.size, opacity: style.opacity };
+  if (kind === "human") s.avatar = style.avatar || 0;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (isLineShape(s)) {
+    const len = Math.hypot(dx, dy);
+    if (len < 8) return s;
+    let ang = Math.atan2(dy, dx);
+    if (constrain) ang = Math.round(ang / (Math.PI / 12)) * (Math.PI / 12);
+    Object.assign(s, { x: a.x + Math.cos(ang) * len / 2, y: a.y + Math.sin(ang) * len / 2, w: len, rot: ang });
+    return s;
+  }
+  let w = Math.abs(dx), h = Math.abs(dy);
+  if (w < 12 && h < 12) return s;
+  if (kind === "human" || constrain) w = h = Math.max(w, h);
+  w = Math.max(w, 20); h = Math.max(h, 20);
+  s.w = w; s.h = h;
+  s.x = a.x + Math.sign(dx || 1) * w / 2;
+  s.y = a.y + Math.sign(dy || 1) * h / 2;
+  return s;
+}
+
+function drawShape(ctx, s) {
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = s.opacity ?? 1;
+  ctx.translate(s.x, s.y);
+  ctx.rotate(s.rot || 0);
+  ctx.strokeStyle = ctx.fillStyle = s.color || "#141414";
+  ctx.lineWidth = s.size;
+  ctx.lineCap = ctx.lineJoin = "round";
+  const w = s.w, h = s.h, lw = s.size;
+  switch (s.shape) {
+    case "line":
+    case "dotted": {
+      if (s.shape === "dotted") ctx.setLineDash([0.01, lw * 2.4]);
+      ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(w / 2, 0); ctx.stroke();
+      break;
+    }
+    case "arrow": {
+      const head = Math.min(w * 0.45, Math.max(lw * 3.2, 26));
+      const hw = head * 0.62;
+      ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(w / 2 - head * 0.6, 0); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2 - head, -hw); ctx.lineTo(w / 2 - head, hw); ctx.closePath();
+      ctx.lineWidth = Math.max(1, lw * 0.5);
+      ctx.fill(); ctx.stroke();
+      break;
+    }
+    case "rect":
+      ctx.strokeRect(-w / 2, -h / 2, w, h);
+      break;
+    case "triangle":
+      ctx.beginPath(); ctx.moveTo(0, -h / 2); ctx.lineTo(w / 2, h / 2); ctx.lineTo(-w / 2, h / 2); ctx.closePath();
+      ctx.stroke();
+      break;
+    case "camera": drawCamera(ctx, s); break;
+    case "human": drawHuman(ctx, s); break;
+  }
+  ctx.restore();
+}
+
+/* top-down camera: body + lens cone opening toward local -y */
+function drawCamera(ctx, s) {
+  const w = s.w, h = s.h, lw = Math.min(s.size, Math.min(w, h) * 0.08);
+  const coneH = h * 0.42, bodyTop = -h / 2 + coneH, bw = w * 0.62;
+  ctx.lineWidth = lw;
+  // lens cone
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.22, bodyTop); ctx.lineTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2); ctx.lineTo(bw * 0.22, bodyTop);
+  ctx.closePath();
+  const a = ctx.globalAlpha;
+  ctx.globalAlpha = a * 0.22; ctx.fill();
+  ctx.globalAlpha = a; ctx.stroke();
+  // body
+  rr(ctx, -bw / 2, bodyTop, bw, h / 2 - bodyTop, Math.min(bw, h) * 0.1);
+  ctx.fill(); ctx.stroke();
+  // little viewfinder notch on the back
+  ctx.fillStyle = "#fff";
+  ctx.globalAlpha = a * 0.85;
+  rr(ctx, -bw * 0.18, h / 2 - (h / 2 - bodyTop) * 0.42, bw * 0.36, (h / 2 - bodyTop) * 0.2, 3);
+  ctx.fill();
+}
+
+/* top-down person in a 100×100 box, facing local -y */
+function drawHuman(ctx, s) {
+  const av = AVATARS[s.avatar || 0] || AVATARS[0];
+  const k = Math.min(s.w, s.h) / 100;
+  ctx.scale(k, k);
+  ctx.lineWidth = Math.max(0.8, Math.min(s.size / k, 3.5));
+  const ink = s.color || "#141414";
+  const disc = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); };
+  const oval = (x, y, rx, ry) => { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); };
+  const paint = (fill, stroke = true) => { ctx.fillStyle = fill; ctx.fill(); if (stroke) { ctx.strokeStyle = ink; ctx.stroke(); } };
+  // shoulders
+  oval(0, 4, 45, 21); paint(av.shirt);
+  // long hair drapes down the back, under the head
+  if (av.style === "long") { oval(0, 16, 22, 15); paint(av.hair); }
+  if (av.style === "bun") { disc(0, 22, 8.5); paint(av.hair); }
+  if (av.style === "curly") {
+    for (let i = 0; i <= 6; i++) {
+      const t = Math.PI * (0.05 + i * 0.15);
+      disc(Math.cos(t) * 21, 1 + Math.sin(t) * 21, 7.5); paint(av.hair);
+    }
+  }
+  // head
+  disc(0, 1, 20); paint(av.skin);
+  // hair over the back of the head (clipped to the head circle)
+  const hairFrom = { short: -7, long: -9, bun: -6, curly: -8, buzz: -11 }[av.style];
+  if (hairFrom !== undefined) {
+    ctx.save();
+    disc(0, 1, 20); ctx.clip();
+    ctx.globalAlpha *= av.style === "buzz" ? 0.4 : 1;
+    ctx.fillStyle = av.hair;
+    ctx.fillRect(-22, hairFrom, 44, 30);
+    ctx.restore();
+    disc(0, 1, 20); ctx.strokeStyle = ink; ctx.stroke();
+  }
+  if (av.style === "cap") {
+    oval(0, -18, 15, 9); paint(av.hair);  // brim out front
+    disc(0, 1, 20); paint(av.hair);
+    disc(0, 1, 4); paint("#fff", false);
+    return; // brim hides the face
+  }
+  // eyes + nose say which way they're looking
+  ctx.fillStyle = "#141414";
+  disc(-7, -12, 2.6); ctx.fill();
+  disc(7, -12, 2.6); ctx.fill();
+  oval(0, -19.5, 3.4, 3); paint(av.skin);
 }
 
 /* paint a whole drawing into an already-transformed ctx (logical coords).
@@ -430,10 +592,11 @@ function histFor(id) {
   if (!h) { h = { undo: [], redo: [] }; hist.set(id, h); }
   return h;
 }
-/* strokes/images are treated as immutable once committed, so a snapshot
-   is a cheap structural copy (strings are shared) */
+/* strokes are treated as immutable once committed, so a snapshot is a
+   cheap structural copy (strings are shared); images and shapes can be
+   moved in place, so those get copied */
 function snapDrawing(d) {
-  return d ? { base: d.base, images: d.images.map(i => ({ ...i })), strokes: d.strokes.slice() } : null;
+  return d ? { base: d.base, images: d.images.map(i => ({ ...i })), strokes: d.strokes.map(s => s.shape ? { ...s } : s) } : null;
 }
 function pushHist(panel, preSnap) {
   const h = histFor(panel.id);
@@ -444,6 +607,7 @@ function pushHist(panel, preSnap) {
   updateUndoButtons();
 }
 function undoDrawing(panel) {
+  if (ED.on) edStyleCommit(); // a half-finished restyle becomes its own step
   const h = histFor(panel.id);
   if (!h.undo.length) { toast("Nothing to undo"); return; }
   h.redo.push(snapDrawing(panel.drawing));
@@ -451,6 +615,7 @@ function undoDrawing(panel) {
   afterHistoryChange(panel);
 }
 function redoDrawing(panel) {
+  if (ED.on) edStyleCommit();
   const h = histFor(panel.id);
   if (!h.redo.length) { toast("Nothing to redo"); return; }
   h.undo.push(snapDrawing(panel.drawing));
@@ -750,6 +915,18 @@ function buildPanel(panel) {
   refreshPanelClasses(el, panel);
 
   makeDragGrip($(".drag-grip", el), panel, el);
+
+  // pen / text on a text-only shot: open its frame instead of typing into it
+  text.addEventListener("pointerdown", e => {
+    if (!panel.frameHidden || (tool !== "pen" && tool !== "text" && tool !== "shape")) return;
+    e.preventDefault();
+    panel.frameHidden = false;
+    applyItemToDom(panel, ["frameHidden"]);
+    $(".frame", el).classList.add("pop");
+    setTimeout(() => $(".frame", el).classList.remove("pop"), 450);
+    updateGlobalEye();
+    save();
+  });
 
   title.addEventListener("input", () => {
     panel.title = title.value;
@@ -1128,6 +1305,7 @@ function setupCanvas(canvas, panel) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
+  let shapeStart = null; // logical point a shape drag began at
   canvas.addEventListener("pointerdown", e => {
     if (tool === "type") return;
     if (tool === "text") { e.preventDefault(); beginBoardText(e); return; }
@@ -1136,7 +1314,9 @@ function setupCanvas(canvas, panel) {
     canvas.setPointerCapture(e.pointerId);
     rect = canvas.getBoundingClientRect();
     preSnap = snapDrawing(panel.drawing);
-    live = tool === "eraser"
+    shapeStart = tool === "shape" ? toLogical(e.clientX, e.clientY) : null;
+    live = shapeStart ? shapeFromDrag(shapeKind, shapeStart, shapeStart, e.shiftKey, shapeStyle())
+      : tool === "eraser"
       ? { size: eraserSize, opacity: 1, eraser: true, pts: [] }
       : { color: brush.color, size: brush.size, opacity: brush.opacity, pts: [] };
     bg = document.createElement("canvas");
@@ -1147,6 +1327,7 @@ function setupCanvas(canvas, panel) {
       bgc.setTransform(s, 0, 0, s, 0, 0);
       drawArt(bgc, panel.drawing, logicalH(currentProject()), src => imgCache.get(src));
     }
+    if (shapeStart) { renderLive(); return; }
     const l = toLogical(e.clientX, e.clientY);
     const pr = pressureOf(e);
     addPoint(live, l.x, l.y, pr);
@@ -1156,6 +1337,11 @@ function setupCanvas(canvas, panel) {
 
   canvas.addEventListener("pointermove", e => {
     if (!live) return;
+    if (shapeStart) {
+      live = shapeFromDrag(shapeKind, shapeStart, toLogical(e.clientX, e.clientY), e.shiftKey, shapeStyle());
+      renderLive();
+      return;
+    }
     coalesced(e).forEach(ce => {
       const l = toLogical(ce.clientX, ce.clientY);
       addPoint(live, l.x, l.y, pressureOf(ce));
@@ -1165,6 +1351,16 @@ function setupCanvas(canvas, panel) {
 
   const end = e => {
     if (!live) return;
+    if (shapeStart) {
+      if (e && e.type === "pointerup") {
+        ensureDrawing(panel).strokes.push(live);
+        pushHist(panel, preSnap);
+        saveSoon();
+      }
+      live = null; bg = null; preSnap = null; shapeStart = null;
+      paintBoardCanvas(canvas, panel);
+      return;
+    }
     if (e && e.type === "pointerup" && rect) { // land the last point exactly where the pointer stopped
       const l = toLogical(e.clientX, e.clientY);
       addPoint(live, l.x, l.y, pressureOf(e), true);
@@ -1263,12 +1459,15 @@ document.addEventListener("drop", e => {
   const panel = allPanels(currentProject()).find(x => x.id === panelEl.dataset.id);
   if (panel) files.forEach(f => importImageToPanel(panel, f));
 });
+let pasteWait = null; // ⌘V fallback for browsers that skip the paste event outside text fields
 document.addEventListener("paste", e => {
   if (!ED.on) return;
+  if (/^(INPUT|TEXTAREA)$/.test(e.target?.tagName || "")) return;
+  clearTimeout(pasteWait); pasteWait = null;
   const files = [...(e.clipboardData?.files || [])].filter(f => /^image\//.test(f.type));
-  if (!files.length) return;
   e.preventDefault();
-  files.forEach(f => importImageToPanel(ED.panel, f));
+  if (files.length) files.forEach(f => importImageToPanel(ED.panel, f));
+  else edPaste();
 });
 
 /* ---------------- tools, brush & popovers ---------------- */
@@ -1280,7 +1479,7 @@ function setTool(t) {
   $$(".toolbar .tool[data-tool]").forEach(b => b.classList.toggle("active", b.dataset.tool === t));
   if (t !== "type" && currentId) {
     const p = currentProject();
-    if (p && allPanels(p).every(x => x.frameHidden)) toast("All frames are hidden — use an eye button to show one");
+    if (p && (t === "pen" || t === "text" || t === "shape") && allPanels(p).every(x => x.frameHidden)) toast("Tap a shot to open its frame and start drawing");
   }
 }
 
@@ -1326,22 +1525,109 @@ function updateBrushUI() {
 
 $$(".swatch[data-color]").forEach(s => s.addEventListener("click", () => {
   brush.color = s.dataset.color;
+  updateBrushUI();
+  if (edStyleSel({ color: brush.color }, true)) return; // recolor the selected shape
   if (tool === "eraser") setTool("pen");
   if (ED.on && ED.tool === "eraser") edSetTool("pen");
   updateBrushUI();
 }));
 $("#brush-color").addEventListener("input", e => {
   brush.color = e.target.value;
+  updateBrushUI();
+  if (edStyleSel({ color: brush.color })) return;
   if (tool === "eraser") setTool("pen");
   if (ED.on && ED.tool === "eraser") edSetTool("pen");
   updateBrushUI();
 });
-$("#brush-size").addEventListener("input", e => { brush.size = +e.target.value; updateBrushUI(); });
-$("#brush-opacity").addEventListener("input", e => { brush.opacity = +e.target.value / 100; updateBrushUI(); });
+$("#brush-size").addEventListener("input", e => { brush.size = +e.target.value; updateBrushUI(); edStyleSel({ size: Math.max(2, brush.size) }); });
+$("#brush-opacity").addEventListener("input", e => { brush.opacity = +e.target.value / 100; updateBrushUI(); edStyleSel({ opacity: brush.opacity }); });
+["#brush-color", "#brush-size", "#brush-opacity"].forEach(sel => $(sel).addEventListener("change", () => { if (ED.on) edStyleCommit(); }));
 $("#eraser-size").addEventListener("input", e => { eraserSize = +e.target.value; updateBrushUI(); });
 
 $("#btn-brush").addEventListener("click", () => openPop($("#brush-pop"), $("#btn-brush")));
-$("#ed-brush").addEventListener("click", () => openPop($("#brush-pop"), $("#ed-brush")));
+$("#ed-brush").addEventListener("click", () => {
+  const sh = ED.sel && ED.sel.shape ? ED.sel : null;
+  if (sh) { // show the selected shape's own style
+    edStyleCommit();
+    Object.assign(brush, { color: sh.color, size: sh.size, opacity: sh.opacity ?? 1 });
+    updateBrushUI();
+  }
+  openPop($("#brush-pop"), $("#ed-brush"));
+});
+
+/* ---------------- shape picker ---------------- */
+
+const SHAPE_LABELS = { line: "Line", dotted: "Dotted", arrow: "Arrow", rect: "Box", triangle: "Triangle", camera: "Camera" };
+const AVATAR_LABELS = ["Short hair", "Long hair", "Buzz cut", "Bun", "Cap", "Curly"];
+
+function shapePreview(op, pad = 0.18) {
+  const c = document.createElement("canvas");
+  const px = 44;
+  c.width = c.height = px * DPR;
+  c.style.width = c.style.height = px + "px";
+  const g = c.getContext("2d");
+  const box = Math.max(op.w, op.h || 0) * (1 + pad * 2);
+  const k = c.width / box;
+  g.setTransform(k, 0, 0, k, c.width / 2 - op.x * k, c.height / 2 - op.y * k);
+  drawOp(g, op);
+  return c;
+}
+
+function buildShapePop() {
+  const grid = $("#shape-grid"), people = $("#shape-people");
+  Object.keys(SHAPE_LABELS).forEach(kind => {
+    const [w, h] = SHAPE_DEFAULTS[kind];
+    const op = { shape: kind, x: 0, y: 0, w, h, rot: LINE_SHAPES.has(kind) ? -Math.PI / 4 : 0, color: "#141414", size: kind === "camera" ? 10 : 18, opacity: 1 };
+    if (LINE_SHAPES.has(kind)) { op.w = 300; op.size = 22; }
+    const b = document.createElement("button");
+    b.className = "shape-opt";
+    b.dataset.shape = kind;
+    b.title = SHAPE_LABELS[kind];
+    b.append(shapePreview(op, LINE_SHAPES.has(kind) ? -0.1 : 0.12), Object.assign(document.createElement("span"), { textContent: SHAPE_LABELS[kind] }));
+    b.addEventListener("click", () => pickShape(kind));
+    grid.appendChild(b);
+  });
+  AVATARS.forEach((_, i) => {
+    const b = document.createElement("button");
+    b.className = "shape-opt avatar-opt";
+    b.dataset.shape = "human";
+    b.dataset.avatar = i;
+    b.title = "Person — " + AVATAR_LABELS[i];
+    b.append(shapePreview({ shape: "human", x: 0, y: 0, w: 100, h: 100, rot: 0, color: "#141414", size: 2, opacity: 1, avatar: i }, 0.02));
+    b.addEventListener("click", () => pickShape("human", i));
+    people.appendChild(b);
+  });
+}
+
+function updateShapeUI() {
+  $$("#shape-pop .shape-opt").forEach(b => b.classList.toggle("active",
+    b.dataset.shape === shapeKind && (shapeKind !== "human" || +b.dataset.avatar === shapeAvatar)));
+}
+
+function pickShape(kind, avatar) {
+  if (avatar !== undefined) {
+    shapeAvatar = avatar;
+    // a person is selected: swap their avatar instead of arming the tool
+    if (ED.on && ED.items.some(it => it.shape === "human")) {
+      edStyleSel({ avatar }, true);
+      shapeKind = "human";
+      updateShapeUI();
+      closePops();
+      return;
+    }
+  }
+  shapeKind = kind;
+  updateShapeUI();
+  closePops();
+  if (ED.on) edSetTool("shape"); else setTool("shape");
+  const noun = { line: "a line", dotted: "a dotted line", arrow: "an arrow", rect: "a box", triangle: "a triangle", camera: "a camera", human: "a person" }[kind];
+  toast(`Drag in a frame to add ${noun} — or tap for the default size`);
+}
+
+buildShapePop();
+updateShapeUI();
+$("#tool-shape").addEventListener("click", () => { setTool("shape"); openPop($("#shape-pop"), $("#tool-shape")); });
+$("#ed-shape").addEventListener("click", () => { updateShapeUI(); openPop($("#shape-pop"), $("#ed-shape")); });
 
 /* aspect ratio picker */
 $("#btn-aspect").addEventListener("click", () => {
@@ -1390,10 +1676,12 @@ const ED = {
   on: false, panel: null,
   z: 1, tx: 0, ty: 0, fit: 1,
   tool: "pen",
-  sel: null,
+  sel: null,     // the one image / shape showing handles
+  items: [],     // everything selected
+  ownSet: new WeakSet(), // strokes already copied for the current undo step
   live: null, preSnap: null,
   pointers: new Map(),
-  gesture: null, // {t: "stroke" | "pan" | "pinch" | "img-move" | "img-resize", ...}
+  gesture: null, // {t: "stroke" | "pan" | "pinch" | "move" | "marquee" | "img-resize" | "shape-…", ...}
   space: false,
 };
 const edEl = $("#editor");
@@ -1423,6 +1711,7 @@ function edOpen(panel) {
   ED.panel = panel;
   ED.z = 1;
   ED.sel = null;
+  ED.items = [];
   ED.live = null;
   ED.gesture = null;
   ED.pointers.clear();
@@ -1447,9 +1736,9 @@ function edClose() {
   edCommitTextNow();
   if (ED.live) { ED.live = null; ED.preSnap = null; }
   const panel = ED.panel;
+  edDeselect(); // lands any pending restyle / nudge in history first
   ED.on = false;
   ED.panel = null;
-  edDeselect();
   document.body.classList.remove("ed-open");
   closePops();
   const anim = edEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: "ease-in" });
@@ -1614,64 +1903,328 @@ function edEndStroke(commit) {
   edInvalidate();
 }
 
-/* ---- image selection ---- */
+/* ---- selection ----
+   ED.items holds everything selected: images, shapes, ink strokes, text.
+   ED.sel is set only when exactly one image or shape is selected — that
+   one gets resize / rotate handles; anything else gets a plain group box. */
 
-function edSelect(im) {
-  ED.sel = im;
-  $("#ed-sel").hidden = false;
+function edSetSel(items) {
+  edStyleCommit();
+  ED.items = items.slice();
+  ED.sel = items.length === 1 && (items[0].shape || items[0].src) ? items[0] : null;
+  const on = items.length > 0;
+  $("#ed-sel").hidden = !on;
+  $("#ed-sel-bar").hidden = !on;
   edUpdateSelDom();
 }
+function edSelect(item) { edSetSel([item]); }
 function edDeselect() {
-  ED.sel = null;
-  const s = $("#ed-sel");
-  if (s) s.hidden = true;
+  if (!ED.items.length && !edStylePre) return;
+  edSetSel([]);
 }
-function edUpdateSelDom() {
-  if (!ED.sel) return;
-  const imgs = ED.panel?.drawing?.images || [];
-  if (!imgs.includes(ED.sel)) return edDeselect(); // undone / deleted from under us
-  const s = edScale();
-  const el = $("#ed-sel");
-  el.style.left = (ED.sel.x * s + ED.tx) + "px";
-  el.style.top = (ED.sel.y * s + ED.ty) + "px";
-  el.style.width = (ED.sel.w * s) + "px";
-  el.style.height = (ED.sel.h * s) + "px";
-}
-function edSelectAt(e) {
-  const l = edToLogical(e.clientX, e.clientY);
-  const imgs = ED.panel.drawing?.images || [];
-  for (let i = imgs.length - 1; i >= 0; i--) {
-    const im = imgs[i];
-    if (l.x >= im.x && l.x <= im.x + im.w && l.y >= im.y && l.y <= im.y + im.h) {
-      edSelect(im);
-      ED.gesture = { t: "img-move", pre: snapDrawing(ED.panel.drawing), lx: l.x, ly: l.y, x0: im.x, y0: im.y, moved: false };
-      return;
+function itemList(it) { return it.src ? ED.panel.drawing.images : ED.panel.drawing.strokes; }
+const isSelectable = st => !st.eraser;
+
+/* logical axis-aligned bounds of anything in a drawing */
+const boundsCache = new WeakMap();
+const measureCtx = document.createElement("canvas").getContext("2d");
+function itemBounds(it) {
+  if (it.src) return { x0: it.x, y0: it.y, x1: it.x + it.w, y1: it.y + it.h };
+  if (it.shape) {
+    const hw = it.w / 2, hh = isLineShape(it) ? 0 : it.h / 2;
+    const pad = it.size / 2 + (it.shape === "arrow" ? it.size * 2 : 0);
+    const pts = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => shapeToWorld(it, x, y));
+    return {
+      x0: Math.min(...pts.map(p => p.x)) - pad, y0: Math.min(...pts.map(p => p.y)) - pad,
+      x1: Math.max(...pts.map(p => p.x)) + pad, y1: Math.max(...pts.map(p => p.y)) + pad,
+    };
+  }
+  let b = boundsCache.get(it);
+  if (b) return b;
+  if (it.text !== undefined) {
+    measureCtx.font = `600 ${it.size}px ${ART_FONT}`;
+    const lines = it.text.split("\n");
+    const w = Math.max(...lines.map(l => measureCtx.measureText(l).width));
+    b = { x0: it.x, y0: it.y, x1: it.x + w, y1: it.y + lines.length * it.size * 1.3 };
+  } else {
+    const r = it.size / 2 * 1.35; // widest a pressure swell gets
+    b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    for (let i = 0; i < it.pts.length; i += 3) {
+      const x = it.pts[i], y = it.pts[i + 1];
+      if (x - r < b.x0) b.x0 = x - r; if (x + r > b.x1) b.x1 = x + r;
+      if (y - r < b.y0) b.y0 = y - r; if (y + r > b.y1) b.y1 = y + r;
     }
   }
-  edDeselect();
+  boundsCache.set(it, b);
+  return b;
 }
+function unionBounds(items) {
+  const u = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  items.forEach(it => {
+    const b = itemBounds(it);
+    u.x0 = Math.min(u.x0, b.x0); u.y0 = Math.min(u.y0, b.y0);
+    u.x1 = Math.max(u.x1, b.x1); u.y1 = Math.max(u.y1, b.y1);
+  });
+  return u;
+}
+
+function hitItem(it, x, y) {
+  const tol = 8 / edScale();
+  if (it.src) return x >= it.x && x <= it.x + it.w && y >= it.y && y <= it.y + it.h;
+  if (it.shape) return hitShape(it, x, y);
+  const b = itemBounds(it);
+  if (x < b.x0 - tol || x > b.x1 + tol || y < b.y0 - tol || y > b.y1 + tol) return false;
+  if (it.text !== undefined) return true;
+  // ink: near any segment of the centerline
+  const r = it.size / 2 * 1.35 + tol, p = it.pts;
+  for (let i = 0; i + 3 < p.length || i === 0; i += 3) {
+    const x1 = p[i], y1 = p[i + 1], x2 = p[i + 3] ?? x1, y2 = p[i + 4] ?? y1;
+    const dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy;
+    const t = L ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / L)) : 0;
+    if (Math.hypot(x - x1 - dx * t, y - y1 - dy * t) <= r) return true;
+    if (i + 3 >= p.length) break;
+  }
+  return false;
+}
+function edItemAt(l) {
+  const d = ED.panel.drawing;
+  if (!d) return null;
+  for (let i = d.strokes.length - 1; i >= 0; i--) if (isSelectable(d.strokes[i]) && hitItem(d.strokes[i], l.x, l.y)) return d.strokes[i];
+  for (let i = d.images.length - 1; i >= 0; i--) if (hitItem(d.images[i], l.x, l.y)) return d.images[i];
+  return null;
+}
+/* marquee: ink needs a point inside, shapes/text just touch it; images
+   must sit fully inside so a backdrop photo doesn't tag along every time */
+function edItemsInRect(r) {
+  const d = ED.panel.drawing;
+  if (!d) return [];
+  const touches = b => b.x1 >= r.x0 && b.x0 <= r.x1 && b.y1 >= r.y0 && b.y0 <= r.y1;
+  const out = d.images.filter(im => im.x >= r.x0 && im.y >= r.y0 && im.x + im.w <= r.x1 && im.y + im.h <= r.y1);
+  d.strokes.forEach(st => {
+    if (!isSelectable(st)) return;
+    if (st.pts) {
+      if (!touches(itemBounds(st))) return;
+      for (let i = 0; i < st.pts.length; i += 3) {
+        const x = st.pts[i], y = st.pts[i + 1];
+        if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) { out.push(st); return; }
+      }
+    } else if (touches(itemBounds(st))) out.push(st);
+  });
+  return out;
+}
+
+/* ink strokes / text are shared with undo snapshots, so before an edit
+   touches one it's swapped for a private copy (once per undo step) */
+function edOwn(it) {
+  if (it.src || it.shape || ED.ownSet.has(it)) return it;
+  const copy = { ...it };
+  if (it.pts) copy.pts = it.pts.slice();
+  const list = ED.panel.drawing.strokes;
+  list[list.indexOf(it)] = copy;
+  ED.items[ED.items.indexOf(it)] = copy;
+  ED.ownSet.add(copy);
+  return copy;
+}
+function edMoveItem(it, orig, dx, dy) {
+  if (it.pts) {
+    for (let i = 0; i < it.pts.length; i += 3) { it.pts[i] = orig[i] + dx; it.pts[i + 1] = orig[i + 1] + dy; }
+    strokePaths.delete(it);
+    boundsCache.delete(it);
+  } else {
+    it.x = orig.x + dx; it.y = orig.y + dy;
+    boundsCache.delete(it);
+  }
+}
+const edOrigOf = it => it.pts ? it.pts.slice() : { x: it.x, y: it.y };
+
+function edUpdateSelDom() {
+  const el = $("#ed-sel"), bar = $("#ed-sel-bar");
+  if (!ED.items.length) return;
+  const d = ED.panel?.drawing;
+  if (!d || !ED.items.every(it => itemList(it).includes(it))) return edSetSel([]); // undone / deleted from under us
+  const s = edScale();
+  const single = ED.sel, shape = !!single?.shape, line = shape && isLineShape(single);
+  el.classList.toggle("is-shape", shape);
+  el.classList.toggle("is-line", line);
+  el.classList.toggle("is-group", !single);
+  bar.classList.toggle("multi", ED.items.length > 1);
+  let cx, cy, wPx, hPx, rot = 0;
+  if (single) {
+    // shapes store their center; images their top-left
+    cx = shape ? single.x : single.x + single.w / 2; cy = shape ? single.y : single.y + single.h / 2;
+    wPx = single.w * s; hPx = line ? 22 : single.h * s;
+    rot = shape ? single.rot || 0 : 0;
+  } else {
+    const u = unionBounds(ED.items);
+    cx = (u.x0 + u.x1) / 2; cy = (u.y0 + u.y1) / 2;
+    wPx = (u.x1 - u.x0) * s + 12; hPx = (u.y1 - u.y0) * s + 12;
+  }
+  const sx = cx * s + ED.tx, sy = cy * s + ED.ty;
+  el.style.left = (sx - wPx / 2) + "px";
+  el.style.top = (sy - hPx / 2) + "px";
+  el.style.width = wPx + "px";
+  el.style.height = hPx + "px";
+  el.style.transform = rot ? `rotate(${rot}rad)` : "";
+  // the action bar stays upright, just above the box's on-screen bounds
+  // (and above the rotate knob, which sits 34px past the box's top edge)
+  const c = Math.abs(Math.cos(rot)), sn = Math.abs(Math.sin(rot));
+  const knob = shape ? 40 : 0;
+  const halfH = (wPx * sn + hPx * c) / 2 + knob;
+  let top = sy - halfH - 12;
+  bar.classList.toggle("below", top < 50);
+  if (top < 50) top = sy + halfH + 12;
+  bar.style.left = sx + "px";
+  bar.style.top = top + "px";
+}
+
+/* point (logical) in shape's local frame */
+function shapeLocal(sh, x, y) {
+  const c = Math.cos(-(sh.rot || 0)), n = Math.sin(-(sh.rot || 0));
+  const dx = x - sh.x, dy = y - sh.y;
+  return { x: dx * c - dy * n, y: dx * n + dy * c };
+}
+function shapeToWorld(sh, lx, ly) {
+  const c = Math.cos(sh.rot || 0), n = Math.sin(sh.rot || 0);
+  return { x: sh.x + lx * c - ly * n, y: sh.y + lx * n + ly * c };
+}
+function hitShape(sh, x, y) {
+  const l = shapeLocal(sh, x, y);
+  const pad = Math.max(sh.size / 2, 12 / edScale());
+  if (isLineShape(sh)) return Math.abs(l.x) <= sh.w / 2 + pad && Math.abs(l.y) <= pad + (sh.shape === "arrow" ? sh.size : 0);
+  return Math.abs(l.x) <= sh.w / 2 + pad && Math.abs(l.y) <= sh.h / 2 + pad;
+}
+
+/* select-tool press: click picks, shift/⌘-click toggles, dragging a
+   selected thing moves the whole selection, empty space starts a marquee */
+function edSelectPointer(e) {
+  const l = edToLogical(e.clientX, e.clientY);
+  const add = e.shiftKey || e.metaKey || e.ctrlKey;
+  const hit = edItemAt(l);
+  if (hit && add) {
+    edSetSel(ED.items.includes(hit) ? ED.items.filter(x => x !== hit) : [...ED.items, hit]);
+    return;
+  }
+  if (hit) {
+    if (!ED.items.includes(hit)) edSetSel([hit]);
+    edBeginMove(l);
+    return;
+  }
+  if (!add && ED.items.length > 1) { // inside a group's box also grabs the group
+    const u = unionBounds(ED.items);
+    if (l.x >= u.x0 && l.x <= u.x1 && l.y >= u.y0 && l.y <= u.y1) { edBeginMove(l); return; }
+  }
+  ED.gesture = { t: "marquee", a: l, base: add ? ED.items.slice() : [], sx: e.clientX, sy: e.clientY };
+  if (!add) edSetSel([]);
+}
+function edBeginMove(l) {
+  edStyleCommit();
+  ED.ownSet = new WeakSet();
+  const pre = snapDrawing(ED.panel.drawing);
+  ED.items.slice().forEach(edOwn);
+  ED.gesture = { t: "move", pre, lx: l.x, ly: l.y, orig: ED.items.map(edOrigOf), moved: false };
+}
+function edMarqueeMove(g, e) {
+  const r = edStage.getBoundingClientRect();
+  const m = $("#ed-marquee");
+  const x0 = Math.min(g.sx, e.clientX), y0 = Math.min(g.sy, e.clientY);
+  const w = Math.abs(e.clientX - g.sx), h = Math.abs(e.clientY - g.sy);
+  if (!g.moved && w + h < 4) return;
+  g.moved = true;
+  m.hidden = false;
+  Object.assign(m.style, { left: (x0 - r.left) + "px", top: (y0 - r.top) + "px", width: w + "px", height: h + "px" });
+  const b = edToLogical(e.clientX, e.clientY);
+  const hits = edItemsInRect({ x0: Math.min(g.a.x, b.x), y0: Math.min(g.a.y, b.y), x1: Math.max(g.a.x, b.x), y1: Math.max(g.a.y, b.y) });
+  edSetSel([...g.base, ...hits.filter(x => !g.base.includes(x))]);
+}
+
+function edSelectAll() {
+  const d = ED.panel.drawing;
+  if (!d) return;
+  edSetTool("select");
+  edSetSel([...d.images, ...d.strokes.filter(isSelectable)]);
+}
+
+/* arrow keys nudge; a run of nudges is one undo step */
+function edNudge(dx, dy) {
+  if (!ED.items.length) return;
+  edPendingBegin();
+  ED.items.slice().forEach(edOwn);
+  ED.items.forEach(it => edMoveItem(it, edOrigOf(it), dx, dy));
+  edInvalidate();
+}
+
 function edDeleteSel() {
-  if (!ED.sel) return;
+  if (!ED.items.length) return;
+  edStyleCommit();
   const d = ED.panel.drawing;
   const pre = snapDrawing(d);
-  d.images = d.images.filter(im => im !== ED.sel);
+  const gone = new Set(ED.items);
+  d.strokes = d.strokes.filter(x => !gone.has(x));
+  d.images = d.images.filter(x => !gone.has(x));
   pushHist(ED.panel, pre);
-  edDeselect();
+  edSetSel([]);
   saveSoon();
   edInvalidate();
-  toast("Image removed");
+  toast(gone.size > 1 ? `Removed ${gone.size} items` : "Removed");
 }
 function edReorderSel(dir) {
-  if (!ED.sel) return;
-  const imgs = ED.panel.drawing.images;
-  const i = imgs.indexOf(ED.sel);
+  if (ED.items.length !== 1) return;
+  edStyleCommit();
+  const it = ED.items[0];
+  const list = itemList(it);
+  const i = list.indexOf(it);
   const j = i + dir;
-  if (i < 0 || j < 0 || j >= imgs.length) return;
+  if (i < 0 || j < 0 || j >= list.length) return;
   const pre = snapDrawing(ED.panel.drawing);
-  [imgs[i], imgs[j]] = [imgs[j], imgs[i]];
+  [list[i], list[j]] = [list[j], list[i]];
   pushHist(ED.panel, pre);
   saveSoon();
   edInvalidate();
+}
+
+/* ---- clipboard: copy / cut / paste / duplicate (works across shots) ---- */
+
+let artClip = null; // {panelId, items, at: shot last pasted into, n: pastes there}
+const cloneItem = it => it.pts ? { ...it, pts: it.pts.slice() } : { ...it };
+/* selection in layer order, so pasted copies stack the same way */
+function edSelOrdered() {
+  const d = ED.panel.drawing;
+  return [...d.images.filter(x => ED.items.includes(x)), ...d.strokes.filter(x => ED.items.includes(x))];
+}
+function edCopy(cut) {
+  if (!ED.items.length) return;
+  edStyleCommit();
+  artClip = { panelId: ED.panel.id, items: edSelOrdered().map(cloneItem), at: null, n: 0 };
+  if (cut) edDeleteSel();
+  else toast(ED.items.length > 1 ? `Copied ${ED.items.length} items` : "Copied");
+}
+function edPasteItems(items, off) {
+  edStyleCommit();
+  const pre = snapDrawing(ED.panel.drawing);
+  const d = ensureDrawing(ED.panel);
+  const fresh = items.map(src => {
+    const it = cloneItem(src);
+    if (it.src) { it.id = uid(); d.images.push(it); }
+    else d.strokes.push(it);
+    edMoveItem(it, edOrigOf(it), off, off);
+    return it;
+  });
+  pushHist(ED.panel, pre);
+  saveSoon();
+  edSetTool("select");
+  edSetSel(fresh);
+  edInvalidate();
+}
+function edPaste() {
+  if (!artClip || !ED.on) return;
+  // each repeat paste steps down-right; in another shot the first one lands in place
+  if (artClip.at !== ED.panel.id) { artClip.at = ED.panel.id; artClip.n = artClip.panelId === ED.panel.id ? 1 : 0; }
+  else artClip.n++;
+  edPasteItems(artClip.items, artClip.n * 24);
+}
+function edDuplicate() {
+  if (!ED.items.length) return;
+  edPasteItems(edSelOrdered(), 24);
 }
 
 /* corner handles: drag to resize, aspect locked, opposite corner anchored */
@@ -1681,6 +2234,8 @@ $$("#ed-sel .h").forEach(h => {
     e.stopPropagation();
     e.preventDefault();
     try { edStage.setPointerCapture(e.pointerId); } catch (err) {}
+    edStyleCommit();
+    if (ED.sel.shape) { edShapeHandle(h, ED.sel); return; }
     const im = ED.sel;
     const nw = h.classList.contains("nw"), ne = h.classList.contains("ne"), sw = h.classList.contains("sw");
     const dirX = (nw || sw) ? -1 : 1;
@@ -1696,8 +2251,97 @@ $$("#ed-sel .h").forEach(h => {
     };
   });
 });
-$("#ed-sel .ed-sel-bar").addEventListener("pointerdown", e => e.stopPropagation());
+/* shape handles work in the shape's own (rotated) frame:
+   corners resize with the opposite corner pinned, line ends move freely,
+   the knob rotates around the center */
+function edShapeHandle(h, sh) {
+  const pre = snapDrawing(ED.panel.drawing);
+  if (h.classList.contains("rot")) {
+    ED.gesture = { t: "shape-rotate", pre, moved: false };
+    return;
+  }
+  if (h.classList.contains("e") || h.classList.contains("w")) {
+    const end = h.classList.contains("e") ? 1 : -1;
+    const a = shapeToWorld(sh, -end * sh.w / 2, 0); // the end that stays put
+    ED.gesture = { t: "shape-end", pre, ax: a.x, ay: a.y, end, moved: false };
+    return;
+  }
+  const nw = h.classList.contains("nw"), ne = h.classList.contains("ne"), sw = h.classList.contains("sw");
+  const dirX = (nw || sw) ? -1 : 1, dirY = (nw || ne) ? -1 : 1;
+  const a = shapeToWorld(sh, -dirX * sh.w / 2, -dirY * sh.h / 2);
+  ED.gesture = { t: "shape-resize", pre, ax: a.x, ay: a.y, dirX, dirY, ratio: sh.w / sh.h, moved: false };
+}
+function edShapeGestureMove(g, sh, l, shift) {
+  const ang = (x, y) => Math.atan2(y, x);
+  // knob-style snapping: shift = 15° steps, otherwise stick near 45° multiples
+  const snap = a => {
+    if (shift) return Math.round(a / (Math.PI / 12)) * (Math.PI / 12);
+    const q = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
+    return Math.abs(a - q) < 0.06 ? q : a;
+  };
+  if (g.t === "shape-rotate") {
+    sh.rot = snap(ang(l.x - sh.x, l.y - sh.y) + Math.PI / 2);
+  } else if (g.t === "shape-end") {
+    let dx = l.x - g.ax, dy = l.y - g.ay;
+    const len = Math.max(10, Math.hypot(dx, dy));
+    const a = snap(ang(dx, dy));
+    dx = Math.cos(a) * len; dy = Math.sin(a) * len;
+    sh.w = len;
+    sh.rot = g.end > 0 ? a : a + Math.PI;
+    sh.x = g.ax + dx / 2; sh.y = g.ay + dy / 2;
+  } else if (g.t === "shape-resize") {
+    const c = Math.cos(-sh.rot), n = Math.sin(-sh.rot);
+    const dx = l.x - g.ax, dy = l.y - g.ay;
+    let w = Math.max(20, (dx * c - dy * n) * g.dirX);
+    let h = Math.max(20, (dx * n + dy * c) * g.dirY);
+    if (sh.shape === "human" || shift) { if (w / g.ratio > h) h = w / g.ratio; else w = h * g.ratio; }
+    sh.w = w; sh.h = h;
+    const cc = Math.cos(sh.rot), cn = Math.sin(sh.rot);
+    const ox = g.dirX * w / 2, oy = g.dirY * h / 2;
+    sh.x = g.ax + ox * cc - oy * cn;
+    sh.y = g.ay + ox * cn + oy * cc;
+  }
+  g.moved = true;
+}
+
+/* restyle the selection from the brush controls (images excepted); sliders
+   and nudges coalesce into one undo step that lands when the selection or
+   gesture changes */
+let edStylePre = null;
+function edPendingBegin() {
+  if (edStylePre) return;
+  edStylePre = snapDrawing(ED.panel.drawing);
+  ED.ownSet = new WeakSet();
+}
+function edStyleSel(props, final) {
+  const targets = ED.on ? ED.items.filter(it => !it.src) : [];
+  if (!targets.length) return false;
+  edPendingBegin();
+  targets.forEach(t => {
+    const it = edOwn(t);
+    for (const k in props) {
+      if (k === "avatar" && it.shape !== "human") continue;
+      if (k === "size" && it.text !== undefined) continue; // text size isn't a stroke weight
+      it[k] = props[k];
+    }
+    strokePaths.delete(it);
+    boundsCache.delete(it);
+  });
+  edInvalidate();
+  if (final) edStyleCommit();
+  return true;
+}
+function edStyleCommit() {
+  if (!edStylePre || !ED.panel) { edStylePre = null; return; }
+  const pre = edStylePre;
+  edStylePre = null;
+  pushHist(ED.panel, pre);
+  saveSoon();
+}
+
+$("#ed-sel-bar").addEventListener("pointerdown", e => e.stopPropagation());
 $("#ed-img-del").addEventListener("click", edDeleteSel);
+$("#ed-sel-dup").addEventListener("click", edDuplicate);
 $("#ed-img-front").addEventListener("click", () => edReorderSel(+1));
 $("#ed-img-back").addEventListener("click", () => edReorderSel(-1));
 
@@ -1728,20 +2372,33 @@ edStage.addEventListener("pointerdown", e => {
   ED.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (ED.pointers.size === 2) {
     if (ED.gesture?.t === "stroke") edEndStroke(false); // two fingers = never a stroke
+    if (ED.gesture?.t === "shape-new") { ED.live = null; ED.preSnap = null; edInvalidate(); }
     edStartPinch();
     return;
   }
   if (ED.pointers.size > 2) return;
   edCommitTextNow();
-  const drawTool = ED.tool === "pen" || ED.tool === "eraser";
+  edStyleCommit();
+  if ((e.metaKey || e.ctrlKey) && ED.tool !== "select" && ED.tool !== "pan") edSetTool("select"); // ⌘-click selects from any tool
+  const drawTool = ED.tool === "pen" || ED.tool === "eraser" || ED.tool === "shape";
   const touchPans = e.pointerType === "touch" && Date.now() - lastPenAt < 45000; // pencil user: finger pans
   if (ED.tool === "pan" || ED.space || e.button === 1 || (drawTool && touchPans)) {
     ED.gesture = { t: "pan", sx: e.clientX, sy: e.clientY, tx0: ED.tx, ty0: ED.ty };
     return;
   }
+  if (ED.tool === "shape") {
+    e.preventDefault();
+    const a = edToLogical(e.clientX, e.clientY);
+    ED.preSnap = snapDrawing(ED.panel.drawing);
+    ED.live = shapeFromDrag(shapeKind, a, a, e.shiftKey, shapeStyle());
+    ED.gesture = { t: "shape-new", a };
+    edComposeLive();
+    edPaint();
+    return;
+  }
   if (drawTool) { e.preventDefault(); edStartStroke(e); return; }
   if (ED.tool === "text") { edBeginText(e); return; }
-  if (ED.tool === "select") edSelectAt(e);
+  if (ED.tool === "select") edSelectPointer(e);
 });
 
 edStage.addEventListener("pointermove", e => {
@@ -1768,14 +2425,27 @@ edStage.addEventListener("pointermove", e => {
     edPaint();
     return;
   }
-  if (g.t === "img-move" && ED.sel) {
+  if (g.t === "shape-new" && ED.live) {
+    ED.live = shapeFromDrag(shapeKind, g.a, edToLogical(e.clientX, e.clientY), e.shiftKey, shapeStyle());
+    edComposeLive();
+    edPaint();
+    return;
+  }
+  if (g.t.startsWith("shape-") && ED.sel?.shape) {
+    edShapeGestureMove(g, ED.sel, edToLogical(e.clientX, e.clientY), e.shiftKey);
+    edInvalidate();
+    return;
+  }
+  if (g.t === "move") {
     const l = edToLogical(e.clientX, e.clientY);
-    ED.sel.x = g.x0 + (l.x - g.lx);
-    ED.sel.y = g.y0 + (l.y - g.ly);
+    let dx = l.x - g.lx, dy = l.y - g.ly;
+    if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; } // lock to an axis
+    ED.items.forEach((it, i) => edMoveItem(it, g.orig[i], dx, dy));
     g.moved = true;
     edInvalidate();
     return;
   }
+  if (g.t === "marquee") { edMarqueeMove(g, e); return; }
   if (g.t === "img-resize" && ED.sel) {
     const l = edToLogical(e.clientX, e.clientY);
     const im = ED.sel;
@@ -1806,7 +2476,21 @@ function edPointerEnd(e) {
     }
     edEndStroke(true);
   }
-  if ((g.t === "img-move" || g.t === "img-resize") && g.moved) {
+  if (g.t === "shape-new") {
+    const sh = ED.live;
+    ED.live = null;
+    if (sh && e.type === "pointerup") {
+      ensureDrawing(ED.panel).strokes.push(sh);
+      pushHist(ED.panel, ED.preSnap);
+      saveSoon();
+      edSetTool("select"); // new shape comes up selected, ready to move / rotate
+      edSelect(sh);
+    }
+    ED.preSnap = null;
+    edInvalidate();
+  }
+  if (g.t === "marquee") $("#ed-marquee").hidden = true;
+  if ((g.t === "move" || g.t === "img-resize" || g.t.startsWith("shape-")) && g.moved) {
     pushHist(ED.panel, g.pre);
     saveSoon();
   }
@@ -2304,6 +2988,14 @@ $("#import-file").addEventListener("change", async e => {
 
 /* ---------------- wiring ---------------- */
 
+/* touch has no hover — the shot (or scene row) you last tapped shows its actions */
+document.addEventListener("pointerdown", e => {
+  if (e.pointerType === "mouse") return;
+  const hit = e.target.closest(".panel, .scene-row");
+  $$(".touch-active").forEach(x => { if (x !== hit) x.classList.remove("touch-active"); });
+  if (hit) hit.classList.add("touch-active");
+}, true);
+
 /* new storyboard: pick aspect + grid first */
 const createOpts = { aspect: DEFAULT_ASPECT, cols: DEFAULT_COLS, rows: DEFAULT_ROWS };
 function renderCreatePop() {
@@ -2367,7 +3059,9 @@ $("#btn-add-page-bottom").addEventListener("click", addPage);
 
 document.addEventListener("keydown", e => {
   const ae = document.activeElement;
-  const typing = /^(INPUT|TEXTAREA)$/.test(ae?.tagName || "") || !!ae?.isContentEditable;
+  // sliders, swatches and color wells keep focus but aren't text — shortcuts still apply
+  const typing = ae?.tagName === "TEXTAREA" || !!ae?.isContentEditable ||
+    (ae?.tagName === "INPUT" && !/^(range|color|checkbox|radio|button|file)$/.test(ae.type));
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key === "s") { e.preventDefault(); save(); return; }
   if (mod && e.key === "p" && currentId && !ED.on) { e.preventDefault(); exportPDF(); return; }
@@ -2379,18 +3073,37 @@ document.addEventListener("keydown", e => {
   }
 
   if (ED.on) {
-    if (typing || mod || e.altKey) return;
+    if (typing || e.altKey) return;
     const k = e.key.toLowerCase();
+    if (mod) {
+      if (k === "a") { e.preventDefault(); edSelectAll(); }
+      else if (k === "c" && ED.items.length) { e.preventDefault(); edCopy(false); }
+      else if (k === "x" && ED.items.length) { e.preventDefault(); edCopy(true); }
+      else if (k === "d") { e.preventDefault(); edDuplicate(); }
+      else if (k === "v") { // let the paste event decide (system images win); fall back if it never comes
+        clearTimeout(pasteWait);
+        pasteWait = setTimeout(() => { pasteWait = null; edPaste(); }, 80);
+      }
+      return;
+    }
+    const nudge = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }[k];
+    if (nudge && ED.items.length) {
+      e.preventDefault();
+      const step = (e.shiftKey ? 10 : 1) / edScale(); // screen pixels, whatever the zoom
+      edNudge(nudge[0] * step, nudge[1] * step);
+      return;
+    }
     if (k === " ") { ED.space = true; edStage.classList.add("panning"); e.preventDefault(); }
     else if (k === "p") edSetTool("pen");
     else if (k === "e") edSetTool("eraser");
     else if (k === "t") edSetTool("text");
     else if (k === "v") edSetTool("select");
+    else if (k === "s") edSetTool("shape");
     else if (k === "+" || k === "=") edZoomCenter(1.25);
     else if (k === "-") edZoomCenter(0.8);
     else if (k === "0") edZoomFit();
     else if (k === "backspace" || k === "delete") edDeleteSel();
-    else if (k === "escape") { if (ED.sel) edDeselect(); else edClose(); }
+    else if (k === "escape") { if (ED.items.length) edDeselect(); else edClose(); }
     return;
   }
 
@@ -2414,6 +3127,7 @@ document.addEventListener("keydown", e => {
   else if (k === "t") setTool("text");
   else if (k === "p") setTool("pen");
   else if (k === "e") setTool("eraser");
+  else if (k === "s") setTool("shape");
   else if (k === "h") toggleFrames();
   else if (k === "n") addPage();
   else if (k === "escape") goHome();

@@ -7,7 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Storyit">
-<meta name="theme-color" content="#F6F4EF">
+<meta name="theme-color" content="#F6F4EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161513" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>Storyit — storyboards that feel good</title>
@@ -73,7 +75,6 @@
       <input id="project-name" class="project-name" spellcheck="false" maxlength="60" placeholder="Untitled project">
       <div class="bar-right">
         <span class="sync-pill" data-sync-pill title="Sync status"><i></i><span>Local only</span></span>
-        <span class="save-dot" id="save-dot"><i></i>Saved</span>
         <button class="aspect-chip pop-anchor" id="btn-grid" title="Shots per page — columns × rows">2×3</button>
         <button class="aspect-chip pop-anchor" id="btn-aspect" title="Frame aspect ratio">16:9</button>
         <button class="icon-btn pop-anchor" id="btn-export" title="Export — PDF, text, backup">
@@ -107,6 +108,9 @@
       </button>
       <button class="tool" id="tool-eraser" data-tool="eraser" title="Eraser (E)">
         <svg viewBox="0 0 24 24"><path d="M7 20h13M5.5 14.5l8-8a2 2 0 012.8 0l2.2 2.2a2 2 0 010 2.8l-6 6H9l-3.5-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button class="tool pop-anchor" id="tool-shape" data-tool="shape" title="Shapes — lines, arrows, boxes, camera, people (S) · open the shot editor to rotate">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="12.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16.5 3.5l4.5 8h-9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><path d="M14 20.5l6.5-6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
 
       <span class="tool-sep"></span>
@@ -153,7 +157,6 @@
       <div class="bar-right">
         <input id="script-author" class="script-author" spellcheck="false" maxlength="60" placeholder="Written by…" title="Author — shown on the PDF title page">
         <span class="sync-pill" data-sync-pill title="Sync status"><i></i><span>Local only</span></span>
-        <span class="save-dot" id="script-save-dot"><i></i>Saved</span>
         <button class="icon-btn pop-anchor" id="btn-script-export" title="Export — PDF, text, backup">
           <svg viewBox="0 0 24 24"><path d="M12 3v10M8 9.5l4 4 4-4M5 16.5V19a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 19v-2.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
         </button>
@@ -209,19 +212,24 @@
     <div class="ed-stage" id="ed-stage" data-tool="pen">
       <canvas id="ed-canvas"></canvas>
       <div class="ed-sel" id="ed-sel" hidden>
-        <div class="ed-sel-bar">
-          <button id="ed-img-back" title="Send backward">
-            <svg viewBox="0 0 24 24"><rect x="9.5" y="9.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><rect x="4.5" y="4.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-          </button>
-          <button id="ed-img-front" title="Bring forward">
-            <svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><rect x="9.5" y="9.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="3 2"/></svg>
-          </button>
-          <button id="ed-img-del" title="Delete image (⌫)">
-            <svg viewBox="0 0 24 24"><path d="M4 7h16M10 7V5h4v2M6.5 7l.8 13h9.4l.8-13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-          </button>
-        </div>
         <i class="h nw"></i><i class="h ne"></i><i class="h sw"></i><i class="h se"></i>
+        <i class="h w"></i><i class="h e"></i><i class="h rot" title="Drag to rotate · Shift snaps 15°"></i>
       </div>
+      <div class="ed-sel-bar" id="ed-sel-bar" hidden>
+        <button id="ed-img-back" title="Send backward">
+          <svg viewBox="0 0 24 24"><rect x="9.5" y="9.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><rect x="4.5" y="4.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+        </button>
+        <button id="ed-img-front" title="Bring forward">
+          <svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><rect x="9.5" y="9.5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="3 2"/></svg>
+        </button>
+        <button id="ed-sel-dup" title="Duplicate (⌘D)">
+          <svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M15.5 4.5h-9a2 2 0 00-2 2v9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+        </button>
+        <button id="ed-img-del" title="Delete (⌫)">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M10 7V5h4v2M6.5 7l.8 13h9.4l.8-13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        </button>
+      </div>
+      <div class="ed-marquee" id="ed-marquee" hidden></div>
       <div class="ed-cursor" id="ed-cursor" hidden></div>
       <div class="ed-zoom-chip" id="ed-zoom-chip">100%</div>
     </div>
@@ -236,7 +244,10 @@
       <button class="tool" data-edtool="text" title="Text (T)">
         <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
       </button>
-      <button class="tool" data-edtool="select" title="Move / resize images (V)">
+      <button class="tool pop-anchor" id="ed-shape" data-edtool="shape" title="Shapes — lines, arrows, boxes, camera, people (S)">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="12.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16.5 3.5l4.5 8h-9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><path d="M14 20.5l6.5-6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button class="tool" data-edtool="select" title="Select (V) — click, drag a box, shift/⌘-click to add · ⌘A all · ⌘C / ⌘V / ⌘D · arrows nudge">
         <svg viewBox="0 0 24 24"><path d="M7 3.5l10.5 9-5.2 1 2.4 5.4-2.5 1.1-2.4-5.6L7 17.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
       </button>
       <button class="tool" data-edtool="pan" title="Pan — or hold Space / drag with two fingers">
@@ -306,6 +317,14 @@
         <input type="color" id="brush-color" value="#141414">
       </label>
     </div>
+  </div>
+
+  <div class="popover shape-pop" id="shape-pop" hidden>
+    <div class="pop-title">Shapes</div>
+    <div class="shape-grid" id="shape-grid"></div>
+    <div class="pop-title">People <span>facing the knob — pick a look</span></div>
+    <div class="shape-grid people" id="shape-people"></div>
+    <p class="pop-hint">Color, thickness &amp; opacity come from the brush. Select a shape to move, resize or rotate it.</p>
   </div>
 
   <div class="popover" id="aspect-pop" hidden>

@@ -41,7 +41,8 @@
   function maxFt(e) { let m = 0; if (e.ft) for (const k in e.ft) m = Math.max(m, e.ft[k] || 0); return m; }
 
   /* cheap identity for a drawing: strokes are immutable once committed, so
-     counts + endpoints are enough to notice a push, an undo or an image move */
+     counts + endpoints are enough to notice a push, an undo or an image move
+     (shapes are editable, so their key carries every field) */
   function drawingSig(d) {
     if (!d) return "";
     let s = (d.base ? d.base.length : 0) + "|";
@@ -51,6 +52,7 @@
     return s;
   }
   function strokeKey(st) {
+    if (st.shape) return `s${st.shape}:${st.x}:${st.y}:${st.w}:${st.h}:${st.rot}:${st.size}:${st.color}:${st.opacity}:${st.avatar || 0}`;
     if (st.text !== undefined) return `t${st.text.length}:${st.x}:${st.y}:${st.size}`;
     const n = st.pts.length;
     return `${n}:${st.pts[0]}:${st.pts[1]}:${st.pts[n - 3]}:${st.pts[n - 2]}:${st.size}:${st.eraser ? 1 : 0}`;
